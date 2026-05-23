@@ -4862,3 +4862,138 @@ void println(const A& a, const B& b, const C& c, const D& d, const E& e, const F
 }
 #endif
 
+
+
+void registerChecker(std::string probName, int argc, char* argv[])
+{
+    setName("checker for problem %s", probName.c_str());
+    registerTestlibCmd(argc, argv);
+}
+
+
+
+const std::string _grader_OK = "OK";
+const std::string _grader_SV = "SV";
+const std::string _grader_PV = "PV";
+const std::string _grader_WA = "WA";
+const std::string _grader_FAIL = "FAIL";
+
+
+void InStream::readSecret(
+    std::string secret,
+    TResult mismatchResult,
+    std::string mismatchMessage,
+    std::string eofMessage)
+{
+    if (seekEof())
+        quits(mismatchResult, eofMessage);
+    if (readWord() != secret)
+        quits(mismatchResult, mismatchMessage);
+    eoln();
+}
+
+void readBothSecrets(std::string secret)
+{
+    ans.readSecret(
+        secret,
+        _fail,
+        "Secret mismatch in the (correct) answer file",
+        "Empty (correct) answer file");
+    ouf.readSecret(
+        secret,
+        _pv,
+        "Possible tampering with the output",
+        "Early termination of the solution (possibly calling exit)");
+}
+
+
+void InStream::quitByGraderResult(TResult result, std::string defaultMessage)
+{
+    std::string msg = "";
+    if (!eof())
+        msg = readLine();
+    if (msg.empty())
+        quits(result, defaultMessage);
+    quits(result, msg);
+}
+
+void InStream::readGraderResult()
+{
+    std::string result = readWord();
+    eoln();
+    if (result == _grader_OK)
+        return;
+    if (result == _grader_SV)
+        quitByGraderResult(_sv, "Security violation detected in grader");
+    if (result == _grader_PV)
+        quitByGraderResult(_pv, "Protocol violation detected in grader");
+    if (result == _grader_WA)
+        quitByGraderResult(_wa, "Wrong answer detected in grader");
+    if (result == _grader_FAIL)
+        quitByGraderResult(_fail, "Failure in grader");
+    quitf(_fail, "Unknown grader result");
+}
+
+void readBothGraderResults()
+{
+    ans.readGraderResult();
+    ouf.readGraderResult();
+}
+
+
+NORETURN void quit(TResult result)
+{
+    ouf.quit(result, "");
+}
+
+/// Used in validators: skips the rest of input, assuming it to be correct
+NORETURN void skip_ok()
+{
+    if (testlibMode != _validator)
+        quitf(_fail, "skip_ok() only works in validators");
+    testlibFinalizeGuard.quitCount++;
+    halt(0);
+}
+
+/// 1 -> 1st, 2 -> 2nd, 3 -> 3rd, 4 -> 4th, ...
+std::string englishTh(int x)
+{
+    char c[100];
+    snprintf(c, sizeof(c), "%d%s", x, englishEnding(x).c_str());
+    return c;
+}
+
+/// Compares the tokens of two lines
+void compareTokens(int lineNo, std::string a, std::string b, char separator=' ')
+{
+    std::vector<std::string> toka = tokenize(a, separator);
+    std::vector<std::string> tokb = tokenize(b, separator);
+    if (toka == tokb)
+        return;
+    std::string dif = format("%s lines differ - ", englishTh(lineNo).c_str());
+    if (toka.size() != tokb.size())
+        quitf(_wa, "%sexpected: %d tokens, found %d tokens", dif.c_str(), int(toka.size()), int(tokb.size()));
+    for (int i=0; i<int(toka.size()); i++)
+        if (toka[i] != tokb[i])
+            quitf(_wa, "%son the %s token, expected: '%s', found: '%s'", dif.c_str(), englishTh(i+1).c_str(), compress(toka[i]).c_str(), compress(tokb[i]).c_str());
+    quitf(_fail, "%sbut I don't know why!", dif.c_str());
+}
+
+/// Compares the tokens of the remaining lines
+NORETURN void compareRemainingLines(int lineNo=1)
+{
+    for (; !ans.eof(); lineNo++) 
+    {
+        std::string j = ans.readString();
+
+        if (j == "" && ans.eof())
+          break;
+        
+        std::string p = ouf.readString();
+
+        compareTokens(lineNo, j, p);
+    }
+    quit(_ok);
+}
+
+
